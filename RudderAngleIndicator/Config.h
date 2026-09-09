@@ -92,16 +92,24 @@
 #define HMI_MIN_UPDATE_INTERVAL_MS  100   // 10 Hz max
 #define HMI_MIN_UPDATE_DELTA_DEG    0.1f  // ignore changes smaller than this
 
-// Component names as configured in the HMI project. The command syntax
-// below assumes a Nextion-compatible UART protocol (text command + 0xFF
-// 0xFF 0xFF terminator), which is what the great majority of "UART HMI"
-// touch displays use (Nextion itself, and most Nextion-compatible clones).
-// If your specific display uses a different protocol (e.g. DWIN's binary
-// VP-address frames), replace the body of HMI::sendAngle() — the rest of
-// the firmware (ADC + filtering) does not need to change.
+// Component names as configured in the HMI project. Target here is a TJC
+// X2, 4.3" 800x480 (wiki.tjc1688.com) — TJC's "USART HMI" line uses a
+// Nextion Editor derivative and the same wire protocol as Nextion (ASCII
+// command + 0xFF 0xFF 0xFF terminator, page.object.attribute=value
+// addressing), so everything below applies directly.
 #define HMI_TEXT_COMPONENT   "t0"    // text field showing e.g. "12.3"
-#define HMI_VALUE_COMPONENT  "va0"   // numeric variable, e.g. driving a rotated needle
-#define HMI_FAULT_COMPONENT  "va1"   // 0 = ok, 1 = fault
+#define HMI_FAULT_COMPONENT  "va1"   // hidden variable: 0 = ok, 1 = fault
+
+// Needle display: use the editor's built-in Gauge component (type "z",
+// default name "z0") rather than a home-made rotated-picture trick — its
+// .val property is the pointer angle in degrees (0-359) directly, no
+// lookup table of pre-rotated frames needed. In the editor, place the
+// Gauge with its pointer resting at whatever you want to call "0 rudder"
+// (typically straight up), then tune HMI_GAUGE_ZERO_OFFSET_DEG below until
+// an amidships rudder shows the needle centred — the gauge's own 0 point
+// and increasing-clockwise direction are whatever you drew it as.
+#define HMI_GAUGE_COMPONENT       "z0"
+#define HMI_GAUGE_ZERO_OFFSET_DEG 180.0f
 
 // Debug printing on the USB serial console.
 #define DEBUG_SERIAL  1

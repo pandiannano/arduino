@@ -10,7 +10,8 @@ Hardware
 * ESP32-C3
 * Hall effect angle sensor, ratiometric 0-5 V output over 0-360 deg
 * TI ADS1120 (SPI ADC)
-* UART "HMI" touch display (Nextion-compatible protocol assumed)
+* TJC X2, 4.3" 800x480 UART touch display ([wiki.tjc1688.com](http://wiki.tjc1688.com/product/X2_serial_compare.html)) —
+  TJC's "USART HMI" line, protocol-compatible with Nextion
 
 Wire the Hall sensor's supply and the ADS1120's AVDD from the *same* 5 V
 rail — see the comment block in `Config.h` for why (it's the first line of
@@ -71,10 +72,34 @@ connector) or the filtered angle lands well outside `ANGLE_MIN_DEG`/
 sends a fault flag to the display instead of a plausible-looking but wrong
 angle.
 
-Adapting the HMI protocol
---------------------------
-`HMI::sendAngle()` assumes a Nextion-compatible UART protocol (ASCII
-command + `0xFF 0xFF 0xFF` terminator), which covers most hobbyist UART
-touch displays. If your specific display uses a different protocol (e.g.
-DWIN's binary VP-address frames), only `HMI.cpp` needs to change — the ADC
-driver and filter chain are independent of it.
+HMI display setup (TJC X2, 4.3" 800x480)
+-----------------------------------------
+`HMI::sendAngle()` uses the standard TJC/Nextion wire protocol (ASCII
+command + `0xFF 0xFF 0xFF` terminator, `page.object.attribute=value`
+addressing). In your TJC project (built with their USART HMI editor),
+lay out three components matching `Config.h`:
+
+* `t0` — a Text component, showing the angle as e.g. `"12.3"`.
+* `z0` — a **Gauge** component for the needle. Its `.val` (set by the
+  firmware every update) is the pointer angle in degrees, 0-359 — no
+  rotated-image lookup table needed, the widget draws the needle itself.
+  Draw the pointer resting wherever you want "0 rudder" to read, then tune
+  `HMI_GAUGE_ZERO_OFFSET_DEG` in `Config.h` until an amidships rudder
+  centres the needle.
+* `va1` — a hidden numeric variable used as the fault flag (0 = ok, 1 =
+  fault); bind a warning icon/text's visibility to it in the editor.
+
+Set the display's UART baud in the TJC project to match `HMI_BAUD` in
+`Config.h` (default 9600 here — TJC boards are commonly shipped at 9600
+but can be set much higher; either works, just keep both ends matched).
+
+If you end up using a different widget than Gauge for the needle (e.g. a
+picture rotated through a discrete frame set), or a non-Nextion-protocol
+display entirely, only `HMI.cpp` needs to change — the ADC driver and
+filter chain are independent of it.
+
+Note: I wasn't able to fetch wiki.tjc1688.com directly (blocked by this
+environment's network policy), so the protocol/Gauge details above are
+from general TJC/Nextion documentation rather than that specific page —
+worth a quick cross-check against your local TJC editor's component
+reference.

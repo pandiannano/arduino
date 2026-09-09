@@ -29,13 +29,12 @@ void HMI::sendAngle(float angleDeg, bool fault) {
            fault ? 0.0f : angleDeg);
   sendCommand(buf);
 
-  // Scale to an integer for a needle/gauge component: 0 at ANGLE_MIN_DEG,
-  // 1000 at ANGLE_MAX_DEG. Adjust the scale/expression in the HMI project
-  // to match how its rotation/pointer widget is actually driven.
-  long scaled = lround((angleDeg - ANGLE_MIN_DEG) * 1000.0f /
-                        (ANGLE_MAX_DEG - ANGLE_MIN_DEG));
-  scaled = constrain(scaled, 0L, 1000L);
-  snprintf(buf, sizeof(buf), "%s.val=%ld", HMI_VALUE_COMPONENT, scaled);
+  // Gauge component: .val is the pointer angle in degrees, 0-359,
+  // increasing in whatever direction the widget was drawn. Wrap into that
+  // range rather than clamp, since the gauge is circular.
+  long gaugeVal = lround(angleDeg + HMI_GAUGE_ZERO_OFFSET_DEG);
+  gaugeVal = ((gaugeVal % 360) + 360) % 360;
+  snprintf(buf, sizeof(buf), "%s.val=%ld", HMI_GAUGE_COMPONENT, gaugeVal);
   sendCommand(buf);
 
   snprintf(buf, sizeof(buf), "%s.val=%d", HMI_FAULT_COMPONENT, fault ? 1 : 0);
