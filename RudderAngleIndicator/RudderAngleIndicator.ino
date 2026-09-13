@@ -1,8 +1,14 @@
 // =====================================================================
 // Rudder Angle Indicator
 //
-// ESP32-C3 + ADS1115 (I2C ADC) + 0-5V Hall-effect rudder angle sensor
+// ESP32-C3 + ADS1115 (I2C ADC) + resistive rudder sender (0-190 ohm over
+// 0-100 degrees, excited from a 5V or 12V supply through a voltage divider)
 // + TJC8048X243 HMI (Nextion-compatible instruction set, over UART)
+//
+// Sender measurement (see SenderADC.cpp / README.md):
+//   A second ADC channel senses the excitation supply itself through an
+//   identical divider, so the sender resistance is computed ratiometrically
+//   - independent of the exact divider ratio and of supply drift/ripple.
 //
 // Filter pipeline (see README.md for the full rationale):
 //   1. Oversampling: several raw ADC reads averaged per sample (ADC noise).
@@ -18,24 +24,19 @@
 #include <Adafruit_ADS1X15.h>
 
 #include "Config.h"
-#include "Filters.h"
+#include "SenderADC.h"
 #include "Calibration.h"
 #include "HMI.h"
 
 Adafruit_ADS1115 ads;
+SenderADC sender;
 Calibration calibration;
 HMIDisplay hmi;
-
-MovingAverageFilter oversampleAvg(OVERSAMPLE_COUNT);  // averages the raw back-to-back ADC reads
-MedianFilter spikeReject(MEDIAN_WINDOW);              // rejects single-sample outliers
-MovingAverageFilter slowMean(MEAN_WINDOW);             // moving-average / "mean value averaging"
-EMAFilter smoother(EMA_ALPHA);                         // final low-pass smoothing
 
 float displayedAngle = 0.0f;
 uint32_t lastHmiUpdate = 0;
 uint32_t lastSampleTime = 0;
 
-bool readFilteredVoltage(float &voltageOut);
 void handleSerialCommands();
 
 void setup() {
@@ -51,6 +52,7 @@ void setup() {
   ads.setGain(ADS1115_GAIN);
   ads.setDataRate(ADS1115_DATA_RATE);
 
+  sender.begin(ads);
   calibration.begin();
   hmi.begin(Serial1, HMI_BAUD, HMI_RX_PIN, HMI_TX_PIN);
 
@@ -65,13 +67,13 @@ void loop() {
   if (now - lastSampleTime < SAMPLE_INTERVAL_MS) return;
   lastSampleTime = now;
 
-  float voltage;
-  if (!readFilteredVoltage(voltage)) {
+  float resistance;
+  if (!sender.read(resistance)) {
     hmi.showFault(HMI_TEXT_COMPONENT, "SENSOR FAULT");
     return;
   }
 
-  float rawAngle = calibration.voltageToAngle(voltage);
+  float rawAngle = calibration.resistanceToAngle(resistance);
 
   // Deadband + slew limiting: stops the needle/readout from twitching on
   // residual quantization noise, without adding lag to a real helm movement.
@@ -91,31 +93,6 @@ void loop() {
     hmi.updateRudderAngle(displayedAngle, HMI_NUMBER_COMPONENT, HMI_GAUGE_COMPONENT, HMI_TEXT_COMPONENT);
     lastHmiUpdate = now;
   }
-}
-
-// Runs the full filter pipeline once and returns the resulting sensor-side
-// voltage (i.e. already corrected for SENSOR_DIVIDER_RATIO). Returns false
-// if the reading looks like a sensor/wiring fault.
-bool readFilteredVoltage(float &voltageOut) {
-  float acc = 0.0f;
-  for (uint8_t i = 0; i < OVERSAMPLE_COUNT; i++) {
-    acc += ads.readADC_SingleEnded(ADS1115_CHANNEL);
-  }
-  float oversampled = acc / OVERSAMPLE_COUNT;
-
-  float meanStage = oversampleAvg.update(oversampled);
-  float median = spikeReject.update(meanStage);
-  float windowedMean = slowMean.update(median);
-  float smoothed = smoother.update(windowedMean);
-
-  float voltage = ads.computeVolts((int16_t)lroundf(smoothed)) / SENSOR_DIVIDER_RATIO;
-
-  if (voltage < SENSOR_FAULT_LOW_V || voltage > SENSOR_FAULT_HIGH_V) {
-    return false;
-  }
-
-  voltageOut = voltage;
-  return true;
 }
 
 // Serial commands for field calibration, e.g.:
@@ -150,8 +127,8 @@ void handleSerialCommands() {
   String which = line.substring(firstSpace + 1, secondSpace);
   float angle = line.substring(secondSpace + 1).toFloat();
 
-  float voltage;
-  if (!readFilteredVoltage(voltage)) {
+  float resistance;
+  if (!sender.read(resistance)) {
     Serial.println(F("Cannot calibrate: sensor fault reading."));
     return;
   }
@@ -165,6 +142,6 @@ void handleSerialCommands() {
     return;
   }
 
-  calibration.setPoint(index, voltage, angle);
-  Serial.printf("Captured %s: %.3f V -> %.1f deg (send CAL SAVE to persist)\n", which.c_str(), voltage, angle);
+  calibration.setPoint(index, resistance, angle);
+  Serial.printf("Captured %s: %.2f ohm -> %.1f deg (send CAL SAVE to persist)\n", which.c_str(), resistance, angle);
 }

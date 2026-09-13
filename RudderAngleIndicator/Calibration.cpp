@@ -8,28 +8,28 @@ void Calibration::begin() {
   load();
 }
 
-void Calibration::setPoint(uint8_t index, float voltage, float angle) {
+void Calibration::setPoint(uint8_t index, float resistance, float angle) {
   if (index > 2) return;
-  _points[index].voltage = voltage;
+  _points[index].resistance = resistance;
   _points[index].angle = angle;
 }
 
-static float interpolate(float v, const CalPoint &a, const CalPoint &b) {
-  float dv = b.voltage - a.voltage;
-  if (fabsf(dv) < 0.0001f) return a.angle;  // Degenerate calibration; avoid divide-by-zero.
-  float t = (v - a.voltage) / dv;
+static float interpolate(float r, const CalPoint &a, const CalPoint &b) {
+  float dr = b.resistance - a.resistance;
+  if (fabsf(dr) < 0.0001f) return a.angle;  // Degenerate calibration; avoid divide-by-zero.
+  float t = (r - a.resistance) / dr;
   return a.angle + t * (b.angle - a.angle);
 }
 
-float Calibration::voltageToAngle(float voltage) const {
+float Calibration::resistanceToAngle(float resistanceOhms) const {
   const CalPoint &port = _points[0];
   const CalPoint &mid = _points[1];
   const CalPoint &stbd = _points[2];
 
-  bool increasing = (stbd.voltage >= port.voltage);
-  bool towardStbd = increasing ? (voltage >= mid.voltage) : (voltage <= mid.voltage);
+  bool increasing = (stbd.resistance >= port.resistance);
+  bool towardStbd = increasing ? (resistanceOhms >= mid.resistance) : (resistanceOhms <= mid.resistance);
 
-  float angle = towardStbd ? interpolate(voltage, mid, stbd) : interpolate(voltage, port, mid);
+  float angle = towardStbd ? interpolate(resistanceOhms, mid, stbd) : interpolate(resistanceOhms, port, mid);
 
   // Clamp: extrapolating past a physical hard-over stop isn't meaningful.
   float minAngle = min(port.angle, stbd.angle);
@@ -57,6 +57,6 @@ void Calibration::printStatus(Stream &out) const {
   static const char *names[3] = {"PORT", "MID", "STBD"};
   out.println(F("Rudder calibration:"));
   for (uint8_t i = 0; i < 3; i++) {
-    out.printf("  %s: %.3f V -> %.1f deg\n", names[i], _points[i].voltage, _points[i].angle);
+    out.printf("  %s: %.2f ohm -> %.1f deg\n", names[i], _points[i].resistance, _points[i].angle);
   }
 }
